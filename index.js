@@ -1,36 +1,70 @@
 const express = require("express");
 const bodyParser = require("body-parser");
 const mysql = require("mysql");
-
-const app = express();
+const fs = require("fs");
 
 // Liste der autorisierten API-Schlüssel
 const authorizedKeys = [
-  "API_KEY_1",
-  "API_KEY_2",
-  "API_KEY_3",
-  "API_KEY_4",
-  "API_KEY_5"
+  "API_KEY1",
+  "API_KEY2",
+  "API_KEY3",
+  "API_KEY4",
+  "API_KEY5"
 ];
 
-app.use(bodyParser.json());
+// Erstelle die Log-Datei, falls sie nicht vorhanden ist
+const logFilePath = "./access.log";
+if (!fs.existsSync(logFilePath)) {
+  fs.writeFileSync(logFilePath, '');
+}
+
+// Loggt Anfragen in der Console und speichert diese in eine Logdatei
+function logRequest(req, res, next) {
+  const date = new Date().toISOString();
+  const ip = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
+  const method = req.method;
+  const url = req.url;
+  let statusCode;
+  const apiKey = req.headers["x-api-key"];
+  let message = "Gültiger API-Schlüssel";
+
+  res.on("finish", () => {
+    statusCode = res.statusCode;
+    if (statusCode === 401) {
+      message = "API-Schlüssel erforderlich";
+    } else if (statusCode === 403) {
+      message = "Ungültiger API-Schlüssel";
+    }
+
+    console.log(`${date} [${ip}] "${method} ${url}" ${statusCode} ${message}: ${apiKey}`);
+    fs.appendFileSync("access.log", `${date} [${ip}] "${method} ${url}" ${statusCode} ${message}: ${apiKey}\n`);
+  });
+
+  next();
+}
+
+// Erstelle einen Request Handler mit Express.js
+const app = express();
+app.use(logRequest);
 
 // Authentifizierungsfunktion
+app.use(bodyParser.json());
+
 function authenticate(req, res, next) {
-  const apiKey = req.headers["x-api-key"]; // Der API-Schlüssel wird im Header "x-api-key" gesendet
+  const apiKey = req.headers["x-api-key"];
   if (!apiKey) {
-    return res.status(401).json({ error: "API-Schlüssel erforderlich" });
+    res.status(401).json({ error: "API-Schlüssel erforderlich" });
+  } else if (!authorizedKeys.includes(apiKey)) {
+    res.status(403).json({ error: "Ungültiger API-Schlüssel" });
+  } else {
+    next();
   }
-  if (!authorizedKeys.includes(apiKey)) {
-    return res.status(403).json({ error: "Ungültiger API-Schlüssel" });
-  }
-  next();
 }
 
 // MySQL-Client erstellen
 const connection = mysql.createConnection({
-  host: "IP",
-  user: "USER",
+  host: "HOSTNAME_OR_IP",
+  user: "USERNAME",
   password: "PASSWORD",
   database: "DATABASE"
 });
@@ -47,7 +81,7 @@ connection.connect((error) => {
 });
 
 // Endpunkt, der eine JSON-Antwort zurückgibt
-app.get("/api", authenticate, (req, res) => {
+app.get("/v1", authenticate, (req, res) => {
   const query = `SELECT * FROM ${table}`;
   connection.query(query, (error, results) => {
     if (error) {
@@ -60,19 +94,19 @@ app.get("/api", authenticate, (req, res) => {
 });
 
 // Endpunkt, der JSON-Daten akzeptiert und eine Bestätigungsantwort zurückgibt
-app.post("/api", authenticate, (req, res) => {
+app.post("/v1", authenticate, (req, res) => {
   const data = req.body;
   console.log(data);
-  const values = data.map((operation) => [
-    operation.id,
-    operation.zeitstempel,
-    operation.fachgebiet,
-    operation.titel,
-    operation.beschreibung,
-    operation.indikation,
-    operation.komplikationen,
-    operation.siebeinstrumente,
-    operation.opablauf
+  const values = data.map((data) => [
+    data.id,
+    data.zeitstempel,
+    data.fachgebiet,
+    data.titel,
+    data.beschreibung,
+    data.indikation,
+    data.komplikationen,
+    data.siebeinstrumente,
+    data.opablauf
   ]);
   connection.query(
     `INSERT INTO ${table} (${rows.join(", ")}) VALUES ?`,
