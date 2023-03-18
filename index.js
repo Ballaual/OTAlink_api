@@ -97,31 +97,46 @@ app.get("/v1", authenticate, (req, res) => {
 app.post("/v1", authenticate, (req, res) => {
   const data = req.body;
   console.log(data);
-  const values = data.map((data) => [
-    data.id,
-    data.zeitstempel,
-    data.fachgebiet,
-    data.titel,
-    data.beschreibung,
-    data.indikation,
-    data.komplikationen,
-    data.siebeinstrumente,
-    data.opablauf
+
+  const values = data.filter((item) => {
+    return item.id && item.zeitstempel && item.fachgebiet && item.titel && item.beschreibung && item.indikation && item.komplikationen && item.siebeinstrumente && item.opablauf;
+  }).map((item) => [
+    item.id,
+    item.zeitstempel,
+    item.fachgebiet,
+    item.titel,
+    item.beschreibung,
+    item.indikation,
+    item.komplikationen,
+    item.siebeinstrumente,
+    item.opablauf
   ]);
-  connection.query(
-    `INSERT INTO ${table} (${rows.join(", ")}) VALUES ?`,
-    [values],
-    (err) => {
-      if (err) {
-        console.error("Fehler beim Speichern der Daten: ", err);
-        return res.status(500).json({ error: "Fehler beim Speichern der Daten" });
-      }
-      const response = {
-        message: "Daten erfolgreich gespeichert"
-      };
-      res.json(response);
+
+  const query = `SELECT id FROM ${table} WHERE id IN (?)`;
+  connection.query(query, [data.map((item) => item.id)], (err, results) => {
+    if (err) {
+      console.error("Fehler beim Überprüfen des Primärschlüssels: ", err);
+      return res.status(500).json({ error: "Interner Serverfehler" });
     }
-  );
+
+    const existingIds = results.map((result) => result.id);
+    const newValues = values.filter((value) => !existingIds.includes(value[0]));
+
+    connection.query(
+      `INSERT INTO ${table} (${rows.join(", ")}) VALUES ?`,
+      [newValues],
+      (err) => {
+        if (err) {
+          console.error("Fehler beim Speichern der Daten: ", err);
+          return res.status(500).json({ error: "Fehler beim Speichern der Daten" });
+        }
+        const response = {
+          message: "Daten erfolgreich gespeichert"
+        };
+        res.json(response);
+      }
+    );
+  });
 });
 
 // Starte den Webserver auf Port 3001
